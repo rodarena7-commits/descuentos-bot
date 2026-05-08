@@ -1,5 +1,6 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -15,6 +16,7 @@ const notificador = require('./services/notificador');
 // ============================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
+let qrString = null; // Guardar QR actual para servir en /qr
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: '✅ Bot activo', timestamp: new Date().toISOString() });
@@ -28,8 +30,119 @@ app.get('/', (req, res) => {
   });
 });
 
+app.get('/qr', async (req, res) => {
+  if (!qrString) {
+    return res.status(400).json({
+      error: '❌ QR no disponible',
+      message: 'El bot aún no ha generado un código QR. Intenta de nuevo en unos momentos.',
+      help: 'Escanea este QR con WhatsApp Business para autenticar el bot'
+    });
+  }
+
+  try {
+    const qrImage = await QRCode.toDataURL(qrString);
+    res.type('text/html').send(`
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>🤖 Descuentos Bot - Autenticación</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          }
+          .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+          }
+          h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
+          p { color: #666; margin-bottom: 30px; line-height: 1.6; }
+          .qr-box {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 15px;
+            display: inline-block;
+            margin: 20px 0;
+          }
+          img {
+            width: 300px;
+            height: 300px;
+            border-radius: 10px;
+          }
+          .instructions {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: left;
+            border-radius: 5px;
+          }
+          .instructions h3 {
+            color: #1976d2;
+            margin-bottom: 10px;
+            font-size: 16px;
+          }
+          .instructions ol {
+            margin-left: 20px;
+            color: #555;
+          }
+          .instructions li {
+            margin: 8px 0;
+          }
+          .status {
+            background: #c8e6c9;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>🤖 Descuentos Bot</h1>
+          <p>Escanea este código QR con <strong>WhatsApp Business</strong> para autenticar el bot</p>
+
+          <div class="qr-box">
+            <img src="${qrImage}" alt="QR Code">
+          </div>
+
+          <div class="instructions">
+            <h3>📱 Cómo autenticar:</h3>
+            <ol>
+              <li>Abre <strong>WhatsApp Business</strong> en tu teléfono</li>
+              <li>Ve a <strong>Configuración</strong> → <strong>Vinculado con cuenta</strong></li>
+              <li>Toca <strong>Vincular un dispositivo</strong></li>
+              <li>Apunta tu cámara al código QR de arriba</li>
+              <li>¡Listo! El bot se autenticará automáticamente</li>
+            </ol>
+          </div>
+
+          <div class="status">✅ El bot está escuchando...</div>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    res.status(500).json({ error: 'Error generando QR', details: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   logger.info(`🌐 Servidor HTTP escuchando en puerto ${PORT}`);
+  logger.info(`📱 Escanea el QR en: https://descuentostuyos.onrender.com/qr`);
 });
 
 // ============================================================
@@ -84,7 +197,9 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+            qrString = qr; // Guardar QR para servir en /qr endpoint
             qrcode.generate(qr, { small: true });
+            logger.info(`📱 QR generado - Escanea en: https://descuentostuyos.onrender.com/qr`);
         }
 
         if (connection === 'close') {
