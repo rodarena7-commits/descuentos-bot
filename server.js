@@ -201,8 +201,8 @@ async function connectToWhatsApp() {
                                 canalId = id;
                                 logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
 
-                                // Activar schedule de notificaciones cada 1 minuto (testing rápido)
-                                scheduler.crearSchedule(sock, canalId, 1, (nuevosDescuentos) => {
+                                // Activar schedule de notificaciones una vez al día (24 horas)
+                                scheduler.crearSchedule(sock, canalId, 24, (nuevosDescuentos) => {
                                     descuentosActivos = nuevosDescuentos;
                                     logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
                                 });
@@ -223,6 +223,8 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // El bot NO responde a mensajes privados
+    // Solo escribe en el canal automáticamente
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const msg = messages[0];
@@ -236,16 +238,8 @@ async function connectToWhatsApp() {
 
         if (!text) return;
 
-        logger.info(`📨 Mensaje de ${from}: ${text}`);
-
-        // Procesar comandos del dueño
-        if (from === NUMERO_DUENO) {
-            await procesarComandoDueno(sock, text);
-            return;
-        }
-
-        // Procesar consultas de clientes
-        await procesarConsultaCliente(sock, from, text);
+        logger.info(`📨 [IGNORADO] Mensaje de ${from}: ${text}`);
+        // No responder a nadie - solo escribir en el canal automáticamente
     });
 
     return sock;

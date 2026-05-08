@@ -31,18 +31,13 @@ async function ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActuali
             onDescuentosActualizados(descuentosActivos);
         }
 
-        // Detectar descuentos nuevos
-        const nuevos = notificador.detectarDescuentosNuevos(descuentosActivos);
+        // Enviar TODOS los descuentos activos al canal (no solo los nuevos)
+        logger.info(`📢 Enviando ${descuentosActivos.length} descuentos activos al canal...`);
 
-        if (nuevos.length > 0) {
-            logger.info(`🎁 ${nuevos.length} descuentos NUEVOS detectados`);
-
-            // Enviar notificación al canal
-            if (sock && numeroCanal) {
-                await notificador.enviarNotificacionAlCanal(sock, numeroCanal, nuevos);
-            }
-        } else {
-            logger.info('ℹ️ No hay descuentos nuevos desde la última actualización');
+        if (sock && numeroCanal && descuentosActivos.length > 0) {
+            await notificador.enviarNotificacionAlCanal(sock, numeroCanal, descuentosActivos);
+        } else if (!descuentosActivos.length) {
+            logger.warn('⚠️ No hay descuentos activos para enviar');
         }
 
         // Limpiar descuentos vencidos del registro
