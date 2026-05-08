@@ -1,15 +1,20 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+
+const logger = require('./utils/logger');
+const scrapersIndex = require('./scrapers/index');
+const scheduler = require('./services/scheduler');
+const notificador = require('./services/notificador');
 
 // ============================================================
 // CONFIGURACIÓN
 // ============================================================
 const NUMERO_BOT = process.env.NUMERO_BOT || '5491176634364@s.whatsapp.net';
 const NUMERO_DUENO = process.env.NUMERO_DUENO || '541123484720@s.whatsapp.net';
+const NOMBRE_CANAL = 'NO PAGUES DEMAS';
 
 // Asegurar que existe la carpeta de datos
 const dataDir = path.join(__dirname, 'data');
@@ -17,12 +22,11 @@ if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-
 // ============================================================
-// ALMACENAMIENTO DE DESCUENTOS
+// ALMACENAMIENTO DE DESCUENTOS Y CANAL
 // ============================================================
 let descuentosActivos = [];
+let canalId = null;
 
 function cargarDescuentos() {
     const archivoDescuentos = path.join(dataDir, 'descuentos.json');
@@ -73,6 +77,23 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Buscar o crear el canal de notificaciones
+    sock.ev.on('contacts.update', async (contacts) => {
+        if (!canalId) {
+            const canales = await sock.groupFetchAllParticipating();
+            for (const [id, grupo] of Object.entries(canales)) {
+                if (grupo.subject && grupo.subject.toLowerCase() === NOMBRE_CANAL.toLowerCase()) {
+                    canalId = id;
+                    logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
+
+                    // Activar schedule de notificaciones cada 6 horas
+                    scheduler.crearSchedule(sock, canalId, 6);
+                    break;
+                }
+            }
+        }
+    });
+
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const msg = messages[0];
@@ -109,12 +130,13 @@ async function procesarComandoDueno(sock, texto) {
 
     if (lowText === '!help' || lowText === '!ayuda') {
         const ayuda = `
-🤖 Comandos disponibles:
+🤖 *Comandos disponibles:*
 - !help / !ayuda → Mostrar esta ayuda
 - !estado → Estado del bot
 - !descuentos → Ver descuentos activos
 - !limpiar → Limpiar descuentos vencidos
-- !scraping → Ejecutar scraping manual
+- !scraping → Ejecutar scraping manual ahora
+- !canal → Buscar canal de notificaciones
         `;
         await sock.sendMessage(NUMERO_DUENO, { text: ayuda });
         return;
@@ -122,9 +144,10 @@ async function procesarComandoDueno(sock, texto) {
 
     if (lowText === '!estado') {
         const estado = `
-✅ Bot Descuentos Argentina
+✅ *Bot Descuentos Argentina*
 📊 Descuentos activos: ${descuentosActivos.length}
 🔄 Última actualización: ${new Date().toLocaleString('es-AR')}
+📢 Canal: ${canalId ? '✅ Conectado' : '❌ No encontrado'}
         `;
         await sock.sendMessage(NUMERO_DUENO, { text: estado });
         return;
@@ -136,11 +159,11 @@ async function procesarComandoDueno(sock, texto) {
             return;
         }
 
-        const resumen = descuentosActivos.slice(0, 10).map((d, i) =>
-            `${i + 1}. [${d.banco}] ${d.descuento} en ${d.categoria}\n   Válido hasta: ${d.validoHasta}`
+        const resumen = descuentosActivos.slice(0, 15).map((d, i) =>
+            `${i + 1}. *[${d.banco}]* ${d.descuento} en ${d.categoria}\n   Válido: ${d.validoHasta}`
         ).join('\n\n');
 
-        await sock.sendMessage(NUMERO_DUENO, { text: `📊 Descuentos activos:\n\n${resumen}` });
+        await sock.sendMessage(NUMERO_DUENO, { text: `📊 *Descuentos activos:*\n\n${resumen}` });
         return;
     }
 
@@ -155,29 +178,128 @@ async function procesarComandoDueno(sock, texto) {
         });
         return;
     }
+
+    if (lowText === '!scraping') {
+        await sock.sendMessage(NUMERO_DUENO, { text: '⏳ Ejecutando scraping...' });
+        const resultado = await scheduler.ejecutarScrapingAutomatico(sock, canalId);
+
+        if (resultado.exito) {
+            const msg = `
+✅ *Scraping completado*
+📦 Total descuentos: ${resultado.totalDescuentos}
+🎁 Nuevos: ${resultado.nuevos}
+⚠️ Errores: ${resultado.errores.length}
+            `;
+            await sock.sendMessage(NUMERO_DUENO, { text: msg });
+        } else {
+            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Error: ${resultado.error}` });
+        }
+        return;
+    }
+
+    if (lowText === '!canal') {
+        if (canalId) {
+            await sock.sendMessage(NUMERO_DUENO, { text: `✅ Canal "${NOMBRE_CANAL}" encontrado y conectado` });
+        } else {
+            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Canal "${NOMBRE_CANAL}" no encontrado. Asegúrate de crear el canal primero.` });
+        }
+        return;
+    }
 }
 
 // ============================================================
 // PROCESAR CONSULTA DE CLIENTE
 // ============================================================
+const conversacionesClientes = new Map(); // Rastrear estado de conversación
+
 async function procesarConsultaCliente(sock, from, texto) {
-    // Aquí implementaremos la lógica conversacional del bot
-    // Por ahora, enviamos un mensaje de bienvenida
+    const lowText = texto.toLowerCase().trim();
 
+    // Comandos rápidos
+    if (lowText === '!bancos') {
+        const descuentosBancos = descuentosActivos.filter(d =>
+            ['BBVA', 'Santander', 'Galicia', 'Macro', 'Itaú', 'Credicoop', 'Hipotecario'].includes(d.banco)
+        );
+        if (descuentosBancos.length > 0) {
+            const resumen = descuentosBancos.map(d =>
+                `*${d.banco}*: ${d.descuento} en ${d.categoria} (${d.medioPago})`
+            ).join('\n');
+            await sock.sendMessage(from, { text: `🏦 *Descuentos Bancos*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!lemon') {
+        const lemon = descuentosActivos.filter(d => d.banco === 'Lemon');
+        if (lemon.length > 0) {
+            const resumen = lemon.map(d =>
+                `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`
+            ).join('\n\n');
+            await sock.sendMessage(from, { text: `🍋 *Descuentos Lemon*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!mercadopago') {
+        const mp = descuentosActivos.filter(d => d.banco === 'Mercado Pago');
+        if (mp.length > 0) {
+            const resumen = mp.map(d =>
+                `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`
+            ).join('\n\n');
+            await sock.sendMessage(from, { text: `📱 *Descuentos Mercado Pago*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    // Búsqueda por palabras clave
+    if (lowText.includes('supermercado') || lowText.includes('compra')) {
+        const descuentos = descuentosActivos.filter(d =>
+            d.categoria.toLowerCase().includes('supermercado') ||
+            d.categoria.toLowerCase().includes('compra')
+        );
+        if (descuentos.length > 0) {
+            const resumen = descuentos.slice(0, 5).map(d =>
+                `*${d.banco}*: ${d.descuento} en ${d.categoria}\n💵 Monto: $${d.monto}\n⏰ Válido: ${d.validoHasta}`
+            ).join('\n\n');
+            await sock.sendMessage(from, { text: `🛒 *Descuentos en Supermercados*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText.includes('restaurante') || lowText.includes('comida')) {
+        const descuentos = descuentosActivos.filter(d =>
+            d.categoria.toLowerCase().includes('gastro') ||
+            d.categoria.toLowerCase().includes('comida')
+        );
+        if (descuentos.length > 0) {
+            const resumen = descuentos.map(d =>
+                `*${d.banco}*: ${d.descuento}\n${d.requisitos}`
+            ).join('\n\n');
+            await sock.sendMessage(from, { text: `🍽️ *Descuentos en Gastronomía*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    // Mensaje de bienvenida/ayuda
     const bienvenida = `
-🎁 Bienvenido a Descuentos Bot Argentina
+🎁 *Descuentos Argentina - Bot*
 
-Te ayudaré a encontrar los mejores descuentos disponibles.
+Encontrá los mejores descuentos disponibles en Argentina.
 
-Para personalizarte mejor, cuéntame:
-1️⃣ ¿Dónde estás ubicado?
-2️⃣ ¿Qué medio de pago prefieres? (débito, crédito, billetera, etc.)
-3️⃣ ¿En qué categoría buscas descuentos? (comida, compras, transporte, etc.)
+*Comandos disponibles:*
+- !bancos → Descuentos de bancos
+- !lemon → Descuentos Lemon
+- !mercadopago → Descuentos Mercado Pago
+- !todos → Ver todos los descuentos
 
-Escribe tu respuesta o usa:
-- !bancos → Ver descuentos por banco
-- !lemon → Ver descuentos Lemon
-- !mercadopago → Ver descuentos Mercado Pago
+*O pregunta por:*
+- Supermercado
+- Restaurante
+- Viajes
+- Transporte
+- Suscripciones
+
+Total de descuentos disponibles: *${descuentosActivos.length}* 🎉
     `;
 
     await sock.sendMessage(from, { text: bienvenida });
