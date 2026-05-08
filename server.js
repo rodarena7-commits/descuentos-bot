@@ -190,24 +190,30 @@ async function connectToWhatsApp() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
     });
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
+        logger.info(`📊 connection.update: connection=${connection}, qr=${qr ? 'sí' : 'no'}`);
+
         if (qr) {
             qrString = qr; // Guardar QR para servir en /qr endpoint
             qrcode.generate(qr, { small: true });
-            logger.info(`📱 QR generado - Escanea en: https://descuentostuyos.onrender.com/qr`);
+            logger.info(`✅ QR GENERADO - Escanea en: http://localhost:3000/qr`);
         }
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             logger.error(`❌ Conexión cerrada. Reconectando: ${shouldReconnect}`);
             if (shouldReconnect) {
-                connectToWhatsApp();
+                // Esperar 10 segundos antes de reconectar
+                logger.info('⏳ Esperando 10 segundos antes de reconectar...');
+                setTimeout(() => {
+                    logger.info('🔄 Intentando reconectar...');
+                    connectToWhatsApp();
+                }, 10000);
             }
         } else if (connection === 'open') {
             logger.info('✅ Bot conectado a WhatsApp');
