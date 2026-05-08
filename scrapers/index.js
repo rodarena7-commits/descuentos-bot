@@ -10,11 +10,23 @@ const rippio = require('./rippio');
 const astropay = require('./astropay');
 const personalPay = require('./personalpay');
 
+// Nuevos scrapers
+const dia = require('./dia');
+const farmacity = require('./farmacity');
+const rappi = require('./rappi');
+const pedidosYa = require('./pedidosya');
+const naranjaX = require('./naranjax');
+const uala = require('./uala');
+const bancoNacion = require('./banco-nacion');
+const hsbc = require('./hsbc');
+const icbc = require('./icbc');
+const bancoCiudad = require('./banco-ciudad');
+
 // ============================================================
-// EJECUTAR TODOS LOS SCRAPERS
+// EJECUTAR TODOS LOS SCRAPERS (EN PARALELO)
 // ============================================================
 async function ejecutarTodosScraping() {
-    logger.info('🔍 Iniciando scraping de todos los descuentos...');
+    logger.info('🔍 Iniciando scraping paralelo de todos los descuentos...');
 
     const resultados = {
         descuentos: [],
@@ -23,6 +35,7 @@ async function ejecutarTodosScraping() {
     };
 
     const scrapers = [
+        // Originales
         { nombre: 'Bancos', fn: bancos.scraping },
         { nombre: 'Mercado Pago', fn: mercadoPago.scraping },
         { nombre: 'Mercado Libre', fn: mercadoLibre.scraping },
@@ -30,23 +43,46 @@ async function ejecutarTodosScraping() {
         { nombre: 'Cuenta DNI', fn: cuentaDNI.scraping },
         { nombre: 'Rippio', fn: rippio.scraping },
         { nombre: 'Astropay', fn: astropay.scraping },
-        { nombre: 'Personal Pay', fn: personalPay.scraping }
+        { nombre: 'Personal Pay', fn: personalPay.scraping },
+        // Nuevos - Con HTTP real + fallback
+        { nombre: 'Día%', fn: dia.scraping },
+        { nombre: 'Farmacity', fn: farmacity.scraping },
+        { nombre: 'Banco Nación', fn: bancoNacion.scraping },
+        { nombre: 'Banco Ciudad', fn: bancoCiudad.scraping },
+        // Nuevos - Solo hardcodeados
+        { nombre: 'Rappi', fn: rappi.scraping },
+        { nombre: 'PedidosYa', fn: pedidosYa.scraping },
+        { nombre: 'NaranjaX', fn: naranjaX.scraping },
+        { nombre: 'Ualá', fn: uala.scraping },
+        { nombre: 'HSBC', fn: hsbc.scraping },
+        { nombre: 'ICBC', fn: icbc.scraping }
     ];
 
-    for (const scraper of scrapers) {
-        try {
-            logger.info(`   ⏳ Scraping ${scraper.nombre}...`);
-            const descuentos = await scraper.fn();
-            resultados.descuentos.push(...descuentos);
-            logger.info(`   ✅ ${scraper.nombre}: ${descuentos.length} descuentos`);
-        } catch (error) {
-            logger.error(`   ❌ Error en ${scraper.nombre}: ${error.message}`);
-            resultados.errores.push({
-                scraper: scraper.nombre,
-                error: error.message
-            });
+    // Lanzar todos los scrapers en paralelo
+    const promesas = scrapers.map(s =>
+        s.fn()
+            .then(descuentos => ({ nombre: s.nombre, descuentos, ok: true }))
+            .catch(error => ({ nombre: s.nombre, error: error.message, ok: false }))
+    );
+
+    const resultadosBrutos = await Promise.allSettled(promesas);
+
+    // Procesar resultados
+    resultadosBrutos.forEach(r => {
+        if (r.status === 'fulfilled') {
+            const { nombre, descuentos, ok, error } = r.value;
+            if (ok) {
+                resultados.descuentos.push(...descuentos);
+                logger.info(`   ✅ ${nombre}: ${descuentos.length} descuentos`);
+            } else {
+                logger.error(`   ❌ ${nombre}: ${error}`);
+                resultados.errores.push({ scraper: nombre, error });
+            }
+        } else {
+            logger.error(`   ❌ Error desconocido: ${r.reason}`);
+            resultados.errores.push({ scraper: 'desconocido', error: String(r.reason) });
         }
-    }
+    });
 
     logger.info(`\n📊 Scraping completado`);
     logger.info(`   Total de descuentos: ${resultados.descuentos.length}`);
@@ -89,7 +125,7 @@ function buscarDescuentos(descuentos, criterios) {
     // Filtrar por medio de pago
     if (criterios.medioPago) {
         resultado = resultado.filter(d =>
-            d.requisitos && d.requisitos.toLowerCase().includes(criterios.medioPago.toLowerCase())
+            d.medioPago && d.medioPago.toLowerCase().includes(criterios.medioPago.toLowerCase())
         );
     }
 
