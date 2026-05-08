@@ -36,7 +36,7 @@ app.get('/qr', async (req, res) => {
     return res.status(400).json({
       error: '❌ QR no disponible',
       message: 'El bot aún no ha generado un código QR. Intenta de nuevo en unos momentos.',
-      help: 'Escanea este QR con WhatsApp Business para autenticar el bot'
+      help: 'Escanea este QR con WhatsApp personal para autenticar el bot'
     });
   }
 
@@ -114,7 +114,7 @@ app.get('/qr', async (req, res) => {
       <body>
         <div class="container">
           <h1>🤖 Descuentos Bot</h1>
-          <p>Escanea este código QR con <strong>WhatsApp Business</strong> para autenticar el bot</p>
+          <p>Escanea este código QR con <strong>WhatsApp personal</strong> para autenticar el bot</p>
 
           <div class="qr-box">
             <img src="${qrImage}" alt="QR Code">
@@ -123,7 +123,7 @@ app.get('/qr', async (req, res) => {
           <div class="instructions">
             <h3>📱 Cómo autenticar:</h3>
             <ol>
-              <li>Abre <strong>WhatsApp Business</strong> en tu teléfono</li>
+              <li>Abre <strong>WhatsApp personal</strong> en tu teléfono</li>
               <li>Ve a <strong>Configuración</strong> → <strong>Vinculado con cuenta</strong></li>
               <li>Toca <strong>Vincular un dispositivo</strong></li>
               <li>Apunta tu cámara al código QR de arriba</li>
@@ -149,9 +149,9 @@ app.listen(PORT, () => {
 // ============================================================
 // CONFIGURACIÓN
 // ============================================================
-const NUMERO_BOT = process.env.NUMERO_BOT || '5491176634364@s.whatsapp.net';
-const NUMERO_DUENO = process.env.NUMERO_DUENO || '541123484720@s.whatsapp.net';
-const NOMBRE_CANAL = 'NO PAGUES DEMAS';
+const NUMERO_BOT = process.env.NUMERO_BOT || '5491158660344@s.whatsapp.net';
+const NUMERO_DUENO = process.env.NUMERO_DUENO || '5491158660344@s.whatsapp.net';
+const NOMBRE_CANAL = process.env.NOMBRE_CANAL || 'descuentostuyos';
 
 // Asegurar que existe la carpeta de datos
 const dataDir = path.join(__dirname, 'data');
