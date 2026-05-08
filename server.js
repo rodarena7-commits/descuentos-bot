@@ -187,30 +187,39 @@ async function connectToWhatsApp() {
             connectionStatus = 'conectado';
             qrString = 'CONECTADO';
             logger.info('✅ Bot conectado a WhatsApp');
-        }
-    });
 
-    sock.ev.on('creds.update', saveCreds);
+            // Buscar el canal cuando se conecta
+            if (!canalId) {
+                try {
+                    const canales = await sock.groupFetchAllParticipating();
+                    logger.info(`📢 Buscando canal "${NOMBRE_CANAL}" entre ${Object.keys(canales).length} grupos...`);
 
-    // Buscar o crear el canal de notificaciones
-    sock.ev.on('contacts.update', async (contacts) => {
-        if (!canalId) {
-            const canales = await sock.groupFetchAllParticipating();
-            for (const [id, grupo] of Object.entries(canales)) {
-                if (grupo.subject && grupo.subject.toLowerCase() === NOMBRE_CANAL.toLowerCase()) {
-                    canalId = id;
-                    logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
+                    for (const [id, grupo] of Object.entries(canales)) {
+                        logger.info(`   - Grupo: "${grupo.subject}"`);
+                        if (grupo.subject && grupo.subject.toLowerCase() === NOMBRE_CANAL.toLowerCase()) {
+                            canalId = id;
+                            logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
 
-                    // Activar schedule de notificaciones cada 6 horas
-                    scheduler.crearSchedule(sock, canalId, 6, (nuevosDescuentos) => {
-                        descuentosActivos = nuevosDescuentos;
-                        logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
-                    });
-                    break;
+                            // Activar schedule de notificaciones cada 6 horas
+                            scheduler.crearSchedule(sock, canalId, 6, (nuevosDescuentos) => {
+                                descuentosActivos = nuevosDescuentos;
+                                logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
+                            });
+                            break;
+                        }
+                    }
+
+                    if (!canalId) {
+                        logger.warn(`⚠️ Canal "${NOMBRE_CANAL}" no encontrado. Disponibles: ${Object.values(canales).map(g => g.subject).join(', ')}`);
+                    }
+                } catch (error) {
+                    logger.error(`❌ Error buscando canal: ${error.message}`);
                 }
             }
         }
     });
+
+    sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
