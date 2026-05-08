@@ -2,12 +2,35 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 require('dotenv').config();
 
 const logger = require('./utils/logger');
 const scrapersIndex = require('./scrapers/index');
 const scheduler = require('./services/scheduler');
 const notificador = require('./services/notificador');
+
+// ============================================================
+// SERVIDOR HTTP (PARA MANTENER EL SERVICIO ACTIVO EN RENDER)
+// ============================================================
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: '✅ Bot activo', timestamp: new Date().toISOString() });
+});
+
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: '🤖 Descuentos Bot - Running',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.listen(PORT, () => {
+  logger.info(`🌐 Servidor HTTP escuchando en puerto ${PORT}`);
+});
 
 // ============================================================
 // CONFIGURACIÓN
