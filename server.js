@@ -201,8 +201,10 @@ async function connectToWhatsApp() {
                                 canalId = id;
                                 logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
 
-                                // Activar schedule de notificaciones una vez al día (24 horas)
-                                scheduler.crearSchedule(sock, canalId, 24, (nuevosDescuentos) => {
+                                // Activar schedule de scraping cada 30 minutos
+                                // Si hay nuevos: envía inmediatamente
+                                // Si no hay nuevos pero pasaron 24h: envía todos
+                                scheduler.crearSchedule(sock, canalId, 30, (nuevosDescuentos) => {
                                     descuentosActivos = nuevosDescuentos;
                                     logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
                                 });

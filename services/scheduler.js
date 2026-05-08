@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 let tareaScheduled = null;
+let ultimoEnvioCompleto = 0; // Timestamp del último envío de todos los descuentos
+const INTERVALO_ENVIO_COMPLETO = 24 * 60 * 60 * 1000; // 24 horas en ms
 
 // ============================================================
 // EJECUTAR SCRAPING Y ENVIAR NOTIFICACIONES
@@ -31,13 +33,29 @@ async function ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActuali
             onDescuentosActualizados(descuentosActivos);
         }
 
-        // Enviar TODOS los descuentos activos al canal (no solo los nuevos)
-        logger.info(`📢 Enviando ${descuentosActivos.length} descuentos activos al canal...`);
+        // Detectar descuentos nuevos
+        const nuevos = notificador.detectarDescuentosNuevos(descuentosActivos);
 
-        if (sock && numeroCanal && descuentosActivos.length > 0) {
-            await notificador.enviarNotificacionAlCanal(sock, numeroCanal, descuentosActivos);
-        } else if (!descuentosActivos.length) {
-            logger.warn('⚠️ No hay descuentos activos para enviar');
+        if (nuevos.length > 0) {
+            logger.info(`🎁 ${nuevos.length} descuentos NUEVOS detectados - Enviando inmediatamente`);
+            if (sock && numeroCanal) {
+                await notificador.enviarNotificacionAlCanal(sock, numeroCanal, nuevos);
+                ultimoEnvioCompleto = Date.now();
+            }
+        } else {
+            // No hay nuevos. Revisar si ya pasaron 24 horas desde el último envío completo
+            const tiempoTranscurrido = Date.now() - ultimoEnvioCompleto;
+
+            if (tiempoTranscurrido >= INTERVALO_ENVIO_COMPLETO) {
+                logger.info(`📢 24 horas sin envío. Enviando TODOS los ${descuentosActivos.length} descuentos activos`);
+                if (sock && numeroCanal && descuentosActivos.length > 0) {
+                    await notificador.enviarNotificacionAlCanal(sock, numeroCanal, descuentosActivos);
+                    ultimoEnvioCompleto = Date.now();
+                }
+            } else {
+                const horasRestantes = Math.ceil((INTERVALO_ENVIO_COMPLETO - tiempoTranscurrido) / (60 * 60 * 1000));
+                logger.info(`ℹ️ Sin cambios. Próximo envío de todos los descuentos en ${horasRestantes}h`);
+            }
         }
 
         // Limpiar descuentos vencidos del registro
@@ -61,16 +79,12 @@ async function ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActuali
 // ============================================================
 // CREAR SCHEDULE PARA EJECUTAR CADA X HORAS
 // ============================================================
-function crearSchedule(sock, numeroCanal, intervalHoras = 6, onDescuentosActualizados) {
-    // Cron: ejecutar cada 6 horas (0 */6 * * *)
-    // 0 = minuto 0
-    // */6 = cada 6 horas
-    // * = cada día
-    // * = cada mes
-    // * = cada día de la semana
-    const cronExpression = `0 */${intervalHoras} * * *`;
+function crearSchedule(sock, numeroCanal, intervalMinutos = 30, onDescuentosActualizados) {
+    // Cron: ejecutar cada X minutos
+    // */30 = cada 30 minutos
+    const cronExpression = `*/${intervalMinutos} * * * *`;
 
-    logger.info(`⏰ Creando schedule de scraping cada ${intervalHoras} horas`);
+    logger.info(`⏰ Creando schedule de scraping cada ${intervalMinutos} minutos`);
 
     tareaScheduled = cron.schedule(cronExpression, async () => {
         logger.info('▶️ Ejecutando scraping programado...');
