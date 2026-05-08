@@ -86,7 +86,7 @@ function crearSchedule(sock, numeroCanal, intervalMinutos = 30, onDescuentosActu
 
     logger.info(`⏰ Creando schedule de scraping cada ${intervalMinutos} minutos`);
 
-    tareaScheduled = cron.schedule(cronExpression, async () => {
+    tareaScheduled = cron.scheduleJob(cronExpression, async () => {
         logger.info('▶️ Ejecutando scraping programado...');
         const resultado = await ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActualizados);
 
@@ -104,7 +104,7 @@ function crearSchedule(sock, numeroCanal, intervalMinutos = 30, onDescuentosActu
 
 function detenerSchedule() {
     if (tareaScheduled) {
-        tareaScheduled.stop();
+        tareaScheduled.cancel();
         logger.info('⏹️ Schedule detenido');
     }
 }
