@@ -1,4 +1,10 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore
+} = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const pino = require('pino');
@@ -18,6 +24,7 @@ const notificador = require('./services/notificador');
 const app = express();
 const PORT = process.env.PORT || 3000;
 let qrString = null; // Guardar QR actual para servir en /qr
+let connectionStatus = 'desconectado'; // Estado de conexión
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: '✅ Bot activo', timestamp: new Date().toISOString() });
@@ -31,114 +38,63 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/qr', async (req, res) => {
-  if (!qrString) {
-    return res.status(400).json({
-      error: '❌ QR no disponible',
-      message: 'El bot aún no ha generado un código QR. Intenta de nuevo en unos momentos.',
-      help: 'Escanea este QR con WhatsApp personal para autenticar el bot'
-    });
-  }
-
-  try {
-    const qrImage = await QRCode.toDataURL(qrString);
-    res.type('text/html').send(`
-      <!DOCTYPE html>
-      <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>🤖 Descuentos Bot - Autenticación</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          }
-          .container {
-            background: white;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            text-align: center;
-            max-width: 500px;
-          }
-          h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
-          p { color: #666; margin-bottom: 30px; line-height: 1.6; }
-          .qr-box {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 15px;
-            display: inline-block;
-            margin: 20px 0;
-          }
-          img {
-            width: 300px;
-            height: 300px;
-            border-radius: 10px;
-          }
-          .instructions {
-            background: #e3f2fd;
-            border-left: 4px solid #2196f3;
-            padding: 15px;
-            margin-top: 20px;
-            text-align: left;
-            border-radius: 5px;
-          }
-          .instructions h3 {
-            color: #1976d2;
-            margin-bottom: 10px;
-            font-size: 16px;
-          }
-          .instructions ol {
-            margin-left: 20px;
-            color: #555;
-          }
-          .instructions li {
-            margin: 8px 0;
-          }
-          .status {
-            background: #c8e6c9;
-            color: #2e7d32;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 20px;
-            font-weight: bold;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>🤖 Descuentos Bot</h1>
-          <p>Escanea este código QR con <strong>WhatsApp personal</strong> para autenticar el bot</p>
-
-          <div class="qr-box">
-            <img src="${qrImage}" alt="QR Code">
-          </div>
-
-          <div class="instructions">
-            <h3>📱 Cómo autenticar:</h3>
-            <ol>
-              <li>Abre <strong>WhatsApp personal</strong> en tu teléfono</li>
-              <li>Ve a <strong>Configuración</strong> → <strong>Vinculado con cuenta</strong></li>
-              <li>Toca <strong>Vincular un dispositivo</strong></li>
-              <li>Apunta tu cámara al código QR de arriba</li>
-              <li>¡Listo! El bot se autenticará automáticamente</li>
-            </ol>
-          </div>
-
-          <div class="status">✅ El bot está escuchando...</div>
-        </div>
-      </body>
-      </html>
+app.get('/qr', (req, res) => {
+  if (connectionStatus === 'conectado') {
+    return res.send(`
+      <div style="text-align:center; padding:50px; font-family:sans-serif; background:#e8f5e9;">
+        <h1>✅ Bot Conectado</h1>
+        <p>El descuentos-bot está activo y funcionando</p>
+      </div>
     `);
-  } catch (error) {
-    res.status(500).json({ error: 'Error generando QR', details: error.message });
   }
+
+  if (!qrString || qrString === 'CONECTADO') {
+    return res.send(`
+      <div style="text-align:center; padding:50px; font-family:sans-serif;">
+        <h1>⏳ Iniciando...</h1>
+        <p>Recarga la página en 10 segundos</p>
+      </div>
+    `);
+  }
+
+  // Usar servicio externo para generar QR (más confiable)
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrString)}&size=400x400`;
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Descuentos Bot - QR</title>
+      <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f0f0; margin: 0; }
+        .container { background: white; padding: 40px; border-radius: 15px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin: 0 0 20px 0; }
+        img { width: 400px; height: 400px; margin: 20px 0; }
+        p { color: #666; font-size: 16px; margin: 10px 0; }
+        .steps { background: #f9f9f9; padding: 20px; border-radius: 10px; margin-top: 20px; text-align: left; }
+        .steps li { margin: 10px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🤖 Descuentos Bot</h1>
+        <p>Escanea con WhatsApp personal</p>
+        <img src="${qrUrl}" alt="QR Code">
+        <div class="steps">
+          <strong>Pasos:</strong>
+          <ol>
+            <li>Abre WhatsApp en tu teléfono</li>
+            <li>Configuración → Dispositivos vinculados</li>
+            <li>Vincular un dispositivo</li>
+            <li>Escanea este QR</li>
+          </ol>
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
 app.listen(PORT, () => {
@@ -187,35 +143,49 @@ function guardarDescuentos() {
 // ============================================================
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
-        auth: state,
+        version,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+        },
         logger: pino({ level: 'silent' }),
+        browser: ['Descuentos Bot', 'Chrome', '1.0.0'],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 0,
+        keepAliveIntervalMs: 10000,
     });
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        logger.info(`📊 connection.update: connection=${connection}, qr=${qr ? 'sí' : 'no'}`);
-
         if (qr) {
-            qrString = qr; // Guardar QR para servir en /qr endpoint
+            qrString = qr;
+            connectionStatus = 'escanea-qr';
             qrcode.generate(qr, { small: true });
             logger.info(`✅ QR GENERADO - Escanea en: http://localhost:3000/qr`);
         }
 
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            logger.error(`❌ Conexión cerrada. Reconectando: ${shouldReconnect}`);
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+            logger.error(`❌ Conexión cerrada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
+
             if (shouldReconnect) {
-                // Esperar 10 segundos antes de reconectar
-                logger.info('⏳ Esperando 10 segundos antes de reconectar...');
                 setTimeout(() => {
-                    logger.info('🔄 Intentando reconectar...');
                     connectToWhatsApp();
-                }, 10000);
+                }, 3000);
+            } else {
+                connectionStatus = 'desconectado';
+                qrString = null;
+                logger.error('❌ Sesión cerrada. Borra auth_info_baileys/ y re-escanea.');
             }
         } else if (connection === 'open') {
+            connectionStatus = 'conectado';
+            qrString = 'CONECTADO';
             logger.info('✅ Bot conectado a WhatsApp');
         }
     });
