@@ -87,7 +87,10 @@ async function connectToWhatsApp() {
                     logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
 
                     // Activar schedule de notificaciones cada 6 horas
-                    scheduler.crearSchedule(sock, canalId, 6);
+                    scheduler.crearSchedule(sock, canalId, 6, (nuevosDescuentos) => {
+                        descuentosActivos = nuevosDescuentos;
+                        logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
+                    });
                     break;
                 }
             }
@@ -181,7 +184,10 @@ async function procesarComandoDueno(sock, texto) {
 
     if (lowText === '!scraping') {
         await sock.sendMessage(NUMERO_DUENO, { text: '⏳ Ejecutando scraping...' });
-        const resultado = await scheduler.ejecutarScrapingAutomatico(sock, canalId);
+        const resultado = await scheduler.ejecutarScrapingAutomatico(sock, canalId, (nuevosDescuentos) => {
+            descuentosActivos = nuevosDescuentos;
+            logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
+        });
 
         if (resultado.exito) {
             const msg = `
@@ -215,10 +221,22 @@ const conversacionesClientes = new Map(); // Rastrear estado de conversación
 async function procesarConsultaCliente(sock, from, texto) {
     const lowText = texto.toLowerCase().trim();
 
-    // Comandos rápidos
+    // Comando: Ver TODOS los descuentos
+    if (lowText === '!todos') {
+        if (descuentosActivos.length === 0) {
+            await sock.sendMessage(from, { text: 'No hay descuentos disponibles aún.' });
+            return;
+        }
+        const { formatearListaDescuentos } = require('./utils/formatters');
+        const texto = formatearListaDescuentos(descuentosActivos);
+        await sock.sendMessage(from, { text: texto });
+        return;
+    }
+
+    // Comando: BANCOS (todos incluidos nuevos)
     if (lowText === '!bancos') {
         const descuentosBancos = descuentosActivos.filter(d =>
-            ['BBVA', 'Santander', 'Galicia', 'Macro', 'Itaú', 'Credicoop', 'Hipotecario'].includes(d.banco)
+            ['BBVA', 'Santander', 'Galicia', 'Macro', 'Itaú', 'Credicoop', 'Hipotecario', 'Banco Nación', 'HSBC', 'ICBC', 'Banco Ciudad'].includes(d.banco)
         );
         if (descuentosBancos.length > 0) {
             const resumen = descuentosBancos.map(d =>
@@ -247,6 +265,61 @@ async function procesarConsultaCliente(sock, from, texto) {
                 `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`
             ).join('\n\n');
             await sock.sendMessage(from, { text: `📱 *Descuentos Mercado Pago*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    // Nuevos comandos rápidos
+    if (lowText === '!naranjax') {
+        const naranja = descuentosActivos.filter(d => d.banco === 'NaranjaX');
+        if (naranja.length > 0) {
+            const resumen = naranja.map(d => `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`).join('\n\n');
+            await sock.sendMessage(from, { text: `🟠 *Descuentos NaranjaX*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!uala') {
+        const uala = descuentosActivos.filter(d => d.banco === 'Ualá');
+        if (uala.length > 0) {
+            const resumen = uala.map(d => `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`).join('\n\n');
+            await sock.sendMessage(from, { text: `💜 *Descuentos Ualá*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!bna' || lowText === '!nacion') {
+        const bna = descuentosActivos.filter(d => d.banco === 'Banco Nación');
+        if (bna.length > 0) {
+            const resumen = bna.map(d => `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`).join('\n\n');
+            await sock.sendMessage(from, { text: `🏛️ *Descuentos Banco Nación*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!dia') {
+        const dia = descuentosActivos.filter(d => d.banco === 'Día%');
+        if (dia.length > 0) {
+            const resumen = dia.map(d => `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`).join('\n\n');
+            await sock.sendMessage(from, { text: `🛍️ *Descuentos Día%*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!rappi') {
+        const rappi = descuentosActivos.filter(d => d.banco === 'Rappi');
+        if (rappi.length > 0) {
+            const resumen = rappi.map(d => `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`).join('\n\n');
+            await sock.sendMessage(from, { text: `🚗 *Descuentos Rappi*\n\n${resumen}` });
+        }
+        return;
+    }
+
+    if (lowText === '!pedidosya') {
+        const py = descuentosActivos.filter(d => d.banco === 'PedidosYa');
+        if (py.length > 0) {
+            const resumen = py.map(d => `*${d.descuento}* en ${d.categoria}\n${d.requisitos}`).join('\n\n');
+            await sock.sendMessage(from, { text: `📱 *Descuentos PedidosYa*\n\n${resumen}` });
         }
         return;
     }
@@ -286,20 +359,23 @@ async function procesarConsultaCliente(sock, from, texto) {
 
 Encontrá los mejores descuentos disponibles en Argentina.
 
-*Comandos disponibles:*
-- !bancos → Descuentos de bancos
+*📋 Comandos de Bancos:*
+- !bancos → Todos los bancos
+- !bna → Banco Nación
+- Otros: !naranjax, !uala
+
+*💳 Comandos de Billeteras/Plataformas:*
 - !lemon → Descuentos Lemon
-- !mercadopago → Descuentos Mercado Pago
-- !todos → Ver todos los descuentos
+- !mercadopago → Mercado Pago
+- !rappi → Rappi
+- !pedidosya → PedidosYa
+- !dia → Día%
 
-*O pregunta por:*
-- Supermercado
-- Restaurante
-- Viajes
-- Transporte
-- Suscripciones
+*🎯 Otros:*
+- !todos → Ver TODOS los descuentos
+- Pregunta por: supermercado, restaurante, viajes, transporte, farmacia, etc.
 
-Total de descuentos disponibles: *${descuentosActivos.length}* 🎉
+Total disponible: *${descuentosActivos.length} descuentos* 🎉
     `;
 
     await sock.sendMessage(from, { text: bienvenida });

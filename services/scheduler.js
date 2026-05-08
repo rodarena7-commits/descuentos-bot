@@ -10,7 +10,7 @@ let tareaScheduled = null;
 // ============================================================
 // EJECUTAR SCRAPING Y ENVIAR NOTIFICACIONES
 // ============================================================
-async function ejecutarScrapingAutomatico(sock, numeroCanal) {
+async function ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActualizados) {
     logger.info('🔄 Iniciando scraping automático...');
 
     try {
@@ -25,6 +25,11 @@ async function ejecutarScrapingAutomatico(sock, numeroCanal) {
         // Guardar descuentos en JSON
         const archivoDescuentos = path.join(__dirname, '../data/descuentos.json');
         fs.writeFileSync(archivoDescuentos, JSON.stringify(descuentosActivos, null, 2));
+
+        // Notificar a server.js para que recargue los descuentos en memoria
+        if (typeof onDescuentosActualizados === 'function') {
+            onDescuentosActualizados(descuentosActivos);
+        }
 
         // Detectar descuentos nuevos
         const nuevos = notificador.detectarDescuentosNuevos(descuentosActivos);
@@ -61,7 +66,7 @@ async function ejecutarScrapingAutomatico(sock, numeroCanal) {
 // ============================================================
 // CREAR SCHEDULE PARA EJECUTAR CADA X HORAS
 // ============================================================
-function crearSchedule(sock, numeroCanal, intervalHoras = 6) {
+function crearSchedule(sock, numeroCanal, intervalHoras = 6, onDescuentosActualizados) {
     // Cron: ejecutar cada 6 horas (0 */6 * * *)
     // 0 = minuto 0
     // */6 = cada 6 horas
@@ -74,7 +79,7 @@ function crearSchedule(sock, numeroCanal, intervalHoras = 6) {
 
     tareaScheduled = cron.schedule(cronExpression, async () => {
         logger.info('▶️ Ejecutando scraping programado...');
-        const resultado = await ejecutarScrapingAutomatico(sock, numeroCanal);
+        const resultado = await ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActualizados);
 
         if (resultado.exito) {
             logger.info(`✅ Scraping completado: ${resultado.totalDescuentos} descuentos, ${resultado.nuevos} nuevos`);
@@ -83,7 +88,7 @@ function crearSchedule(sock, numeroCanal, intervalHoras = 6) {
 
     // También ejecutar inmediatamente al iniciar
     logger.info('📤 Ejecutando scraping inicial...');
-    ejecutarScrapingAutomatico(sock, numeroCanal);
+    ejecutarScrapingAutomatico(sock, numeroCanal, onDescuentosActualizados);
 
     logger.info('✅ Schedule activado');
 }
