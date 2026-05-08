@@ -107,7 +107,7 @@ app.listen(PORT, () => {
 // ============================================================
 const NUMERO_BOT = process.env.NUMERO_BOT || '5491158660344@s.whatsapp.net';
 const NUMERO_DUENO = process.env.NUMERO_DUENO || '5491158660344@s.whatsapp.net';
-const NOMBRE_CANAL = process.env.NOMBRE_CANAL || 'descuentostuyos';
+const ID_CANAL = '0029VbCSRy02kNFz8FVZqS0I@newsletter'; // ID del canal de WhatsApp
 
 // Asegurar que existe la carpeta de datos
 const dataDir = path.join(__dirname, 'data');
@@ -188,37 +188,18 @@ async function connectToWhatsApp() {
             qrString = 'CONECTADO';
             logger.info('✅ Bot conectado a WhatsApp');
 
-            // Buscar el canal cuando se conecta (en función async)
+            // Usar el ID del canal directamente (no buscar)
             if (!canalId) {
-                (async () => {
-                    try {
-                        const canales = await sock.groupFetchAllParticipating();
-                        logger.info(`📢 Buscando canal "${NOMBRE_CANAL}" entre ${Object.keys(canales).length} grupos...`);
+                canalId = ID_CANAL;
+                logger.info(`✅ Canal configurado: ${canalId}`);
 
-                        for (const [id, grupo] of Object.entries(canales)) {
-                            logger.info(`   - Grupo: "${grupo.subject}"`);
-                            if (grupo.subject && grupo.subject.toLowerCase() === NOMBRE_CANAL.toLowerCase()) {
-                                canalId = id;
-                                logger.info(`✅ Canal "${NOMBRE_CANAL}" encontrado: ${id}`);
-
-                                // Activar schedule de scraping cada 30 minutos
-                                // Si hay nuevos: envía inmediatamente
-                                // Si no hay nuevos pero pasaron 24h: envía todos
-                                scheduler.crearSchedule(sock, canalId, 30, (nuevosDescuentos) => {
-                                    descuentosActivos = nuevosDescuentos;
-                                    logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
-                                });
-                                break;
-                            }
-                        }
-
-                        if (!canalId) {
-                            logger.warn(`⚠️ Canal "${NOMBRE_CANAL}" no encontrado. Disponibles: ${Object.values(canales).map(g => g.subject).join(', ')}`);
-                        }
-                    } catch (error) {
-                        logger.error(`❌ Error buscando canal: ${error.message}`);
-                    }
-                })();
+                // Activar schedule de scraping cada 30 minutos
+                // Si hay nuevos: envía inmediatamente
+                // Si no hay nuevos pero pasaron 24h: envía todos
+                scheduler.crearSchedule(sock, canalId, 30, (nuevosDescuentos) => {
+                    descuentosActivos = nuevosDescuentos;
+                    logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
+                });
             }
         }
     });
