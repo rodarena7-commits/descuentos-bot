@@ -51,21 +51,29 @@ function formatearDescuentosParaPrompt(descuentos) {
 }
 
 // ── Prompt del sistema ────────────────────────────────────────────────────────
-function buildSystemPrompt(descuentos) {
+function buildSystemPrompt(descuentos, userName = '', canal = 'whatsapp') {
     const lista = formatearDescuentosParaPrompt(descuentos);
-    return `Sos el asistente virtual de "Ahorro Inteligente (AI)", la app de descuentos más completa de Argentina.
-Tu misión es ayudar a los usuarios a encontrar los mejores descuentos, promos y reintegros de bancos, fintechs y exchanges crypto.
+    const nombreLinea = userName ? `El nombre del usuario es *${userName}*.` : 'No conocés el nombre del usuario.';
+    const formatoLinea = canal === 'whatsapp'
+        ? '- Usá formato WhatsApp: *negrita*, _cursiva_, saltos de línea. Sin markdown de código ni tablas.'
+        : '- Usá formato limpio con emojis y saltos de línea.';
 
-REGLAS:
-- Respondé SIEMPRE en español argentino, de forma amigable y clara
-- Cuando el usuario pregunte algo, filtrá los descuentos más relevantes y presentalos de forma concisa
-- Mostrá máximo 6 descuentos por respuesta (los más relevantes)
-- Si el usuario menciona banco, día, categoría, porcentaje o tipo → filtrá por eso
-- Si pregunta "qué hay" o es vaga → mostrá variedad de los mejores
-- Formato de respuesta: usa bullet points con emoji, sé ordenado
-- Si no hay descuentos para lo que pide → decilo y sugerí alternativas disponibles
-- No inventes descuentos que no estén en la lista
-- Sos parte de la app: podés decir "en la app tenés..." o "encontrás..."
+    return `Sos el asistente de "Ahorro Inteligente (AI)", el bot de descuentos más completo de Argentina.
+Tu misión: ayudar a los usuarios a encontrar descuentos, promos y reintegros de bancos, fintechs y exchanges.
+
+${nombreLinea}
+
+REGLAS DE CONVERSACIÓN:
+- Respondé SIEMPRE en español argentino, amigable y natural
+- Si el usuario dice "hola", "buenas", "hey" u otro saludo → saludalo por su nombre si lo tenés, y preguntale qué descuentos está buscando
+- Si pregunta algo concreto → respondé directamente con los descuentos más relevantes
+- Mostrá máximo 6 descuentos por respuesta, los más útiles primero
+- Si menciona banco, día, categoría o porcentaje → filtrá exactamente por eso
+- Si la consulta es vaga → mostrá los mejores descuentos variados
+- Si no hay descuentos para lo pedido → decilo honestamente y sugerí alternativas
+- No inventes descuentos que no estén en la lista de abajo
+- Podés hacer preguntas de seguimiento para afinar la búsqueda
+${formatoLinea}
 
 DESCUENTOS ACTIVOS (${descuentos.length} total):
 ${lista}`;
@@ -93,7 +101,7 @@ function actualizarHistorial(sessionId, role, content) {
 }
 
 // ── Función principal ─────────────────────────────────────────────────────────
-async function responderChat(mensaje, sessionId = 'default') {
+async function responderChat(mensaje, sessionId = 'default', userName = '', canal = 'whatsapp') {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
         return { respuesta: '❌ El bot no tiene la API key de IA configurada. Contactá al administrador.', ok: false };
@@ -115,7 +123,7 @@ async function responderChat(mensaje, sessionId = 'default') {
         const response = await client.messages.create({
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 1024,
-            system: buildSystemPrompt(descuentos),
+            system: buildSystemPrompt(descuentos, userName, canal),
             messages: obtenerHistorial(sessionId),
         });
 
