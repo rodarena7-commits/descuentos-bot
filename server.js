@@ -251,7 +251,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // El bot captura mensajes de grupos
+    // Captura todos los mensajes entrantes
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const msg = messages[0];
@@ -259,26 +259,37 @@ async function connectToWhatsApp() {
         if (msg.key.fromMe) return;
 
         const from = msg.key.remoteJid;
-        const text = msg.message?.conversation ||
-                     msg.message?.extendedTextMessage?.text ||
-                     msg.message?.imageMessage?.caption || "";
+        const text = (
+            msg.message?.conversation ||
+            msg.message?.extendedTextMessage?.text ||
+            msg.message?.imageMessage?.caption || ""
+        ).trim();
 
         if (!text) return;
 
-        // Si es un grupo, mostrar su ID
-        if (from.includes('@g.us')) {
-            logger.info(`📱 Grupo detectado: ${from}`);
-            await sock.sendMessage(from, { text: `✅ ID del grupo: ${from}\n\nEste es el ID que necesitamos para enviar descuentos aquí.` });
+        logger.info(`📨 Mensaje de ${from}: ${text}`);
+
+        // Mensajes en grupos/canales → mostrar ID (útil para configurar CANAL_ID)
+        if (from.includes('@g.us') || from.includes('@newsletter')) {
+            // Solo responder en grupos de prueba, no en el canal de descuentos
+            if (from !== canalId) {
+                await sock.sendMessage(from, {
+                    text: `📋 ID de este grupo/canal:\n\`${from}\`\n\nUsá este ID como CANAL_ID en las variables de entorno de Render.`
+                });
+            }
             return;
         }
 
-        // Comando !grupos desde privado
-        if (text.toLowerCase() === '!grupos') {
-            await sock.sendMessage(from, { text: '📱 Únete a un grupo y envía un mensaje aquí. El bot te mostrará el ID del grupo automáticamente.' });
-            return;
-        }
+        // Mensajes privados: dueño vs usuarios
+        const esDueno = from === NUMERO_DUENO || from.split('@')[0] === NUMERO_DUENO.split('@')[0];
 
-        logger.info(`📨 [IGNORADO] Mensaje de ${from}: ${text}`);
+        if (esDueno) {
+            logger.info(`👑 Comando del dueño: ${text}`);
+            await procesarComandoDueno(sock, text);
+        } else {
+            logger.info(`👤 Mensaje de usuario: ${text}`);
+            await procesarConsultaCliente(sock, from, text);
+        }
     });
 
     return sock;
