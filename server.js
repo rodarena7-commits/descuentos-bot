@@ -457,9 +457,22 @@ async function main() {
 
     cargarDescuentos();
 
-    const sock = await connectToWhatsApp();
+    // ── Verificar servicios de IA configurados ────────────────────────────────
+    logger.info('═══════════════════════════════════════');
+    logger.info('🤖 ESTADO DE SERVICIOS DE IA:');
+    if (process.env.GROQ_API_KEY) {
+        logger.info('  ✅ GROQ: configurado (primario — gratis y rápido)');
+    } else {
+        logger.error('  ❌ GROQ: NO configurado — Agregar GROQ_API_KEY en Render → descuentos-bot → Environment');
+    }
+    if (process.env.ANTHROPIC_API_KEY) {
+        logger.info('  ✅ CLAUDE: configurado (backup)');
+    } else {
+        logger.warn('  ⚠️ CLAUDE: NO configurado (opcional, es el backup)');
+    }
+    logger.info('═══════════════════════════════════════');
 
-    // Aquí se agregarán los scrapers y la lógica de actualización automática
+    const sock = await connectToWhatsApp();
     logger.info('✅ Bot listo');
 }
 
