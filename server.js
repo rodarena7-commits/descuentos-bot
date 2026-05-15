@@ -145,8 +145,8 @@ app.listen(PORT, () => {
 // ============================================================
 // CONFIGURACIÓN
 // ============================================================
-const NUMERO_BOT = process.env.NUMERO_BOT || '5491158660344@s.whatsapp.net';
-const NUMERO_DUENO = process.env.NUMERO_DUENO || '5491158660344@s.whatsapp.net';
+const NUMERO_BOT = process.env.NUMERO_BOT || '5491124689196@s.whatsapp.net';
+const NUMERO_DUENO = process.env.NUMERO_DUENO || '5491124689196@s.whatsapp.net';
 const ID_CANAL = process.env.CANAL_ID || '120363294934396962@g.us'; // ID del grupo/canal de WhatsApp
 
 // Asegurar que existe la carpeta de datos
