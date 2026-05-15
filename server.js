@@ -11,7 +11,10 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const cors = require('cors');
 require('dotenv').config();
+
+const { responderChat } = require('./services/chatService');
 
 const logger = require('./utils/logger');
 const scrapersIndex = require('./scrapers/index');
@@ -23,8 +26,33 @@ const notificador = require('./services/notificador');
 // ============================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-let qrString = null; // Guardar QR actual para servir en /qr
-let connectionStatus = 'desconectado'; // Estado de conexión
+let qrString = null;
+let connectionStatus = 'desconectado';
+
+// ── CORS: permitir llamadas desde el frontend de Ahorro Inteligente ──────────
+const ALLOWED_ORIGINS = [
+    'https://ahorrointeligente-ai.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+];
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+        else callback(new Error('CORS: origen no permitido'));
+    },
+    methods: ['GET', 'POST'],
+}));
+app.use(express.json());
+
+// ── Endpoint de chat web (IA) ─────────────────────────────────────────────────
+app.post('/api/chat', async (req, res) => {
+    const { message, sessionId } = req.body;
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
+    }
+    const { respuesta, ok } = await responderChat(message.trim().slice(0, 500), sessionId || 'anon');
+    res.json({ respuesta, ok });
+});
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: '✅ Bot activo', timestamp: new Date().toISOString() });
@@ -35,6 +63,18 @@ app.get('/', (req, res) => {
     message: '🤖 Descuentos Bot - Running',
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/groups', (req, res) => {
+  if (!sock || sock.ws.readyState !== 1) {
+    return res.status(503).json({ error: 'Bot no conectado' });
+  }
+
+  res.json({
+    message: 'Para listar grupos, conecta el bot al grupo primero',
+    instructions: 'El bot necesita estar en el grupo. Los grupos se mostrarán aquí cuando se sincronicen.',
+    grupos: 'Se mostrarán cuando se conecte'
   });
 });
 
@@ -107,7 +147,7 @@ app.listen(PORT, () => {
 // ============================================================
 const NUMERO_BOT = process.env.NUMERO_BOT || '5491158660344@s.whatsapp.net';
 const NUMERO_DUENO = process.env.NUMERO_DUENO || '5491158660344@s.whatsapp.net';
-const ID_CANAL = '0029VbCSRy02kNFz8FVZqS0I@newsletter'; // ID del canal de WhatsApp
+const ID_CANAL = process.env.CANAL_ID || '120363294934396962@g.us'; // ID del grupo/canal de WhatsApp
 
 // Asegurar que existe la carpeta de datos
 const dataDir = path.join(__dirname, 'data');
@@ -200,14 +240,18 @@ async function connectToWhatsApp() {
                     descuentosActivos = nuevosDescuentos;
                     logger.info(`♻️ Descuentos recargados en memoria: ${descuentosActivos.length}`);
                 });
+            } else {
+                // Si el canal ya estaba configurado, actualizar el socket en el scheduler
+                // (en caso de reconexión)
+                scheduler.actualizarSocket(sock, canalId);
+                logger.info(`🔄 Socket actualizado en scheduler`);
             }
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // El bot NO responde a mensajes privados
-    // Solo escribe en el canal automáticamente
+    // El bot captura mensajes de grupos
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const msg = messages[0];
@@ -221,8 +265,20 @@ async function connectToWhatsApp() {
 
         if (!text) return;
 
+        // Si es un grupo, mostrar su ID
+        if (from.includes('@g.us')) {
+            logger.info(`📱 Grupo detectado: ${from}`);
+            await sock.sendMessage(from, { text: `✅ ID del grupo: ${from}\n\nEste es el ID que necesitamos para enviar descuentos aquí.` });
+            return;
+        }
+
+        // Comando !grupos desde privado
+        if (text.toLowerCase() === '!grupos') {
+            await sock.sendMessage(from, { text: '📱 Únete a un grupo y envía un mensaje aquí. El bot te mostrará el ID del grupo automáticamente.' });
+            return;
+        }
+
         logger.info(`📨 [IGNORADO] Mensaje de ${from}: ${text}`);
-        // No responder a nadie - solo escribir en el canal automáticamente
     });
 
     return sock;
@@ -242,7 +298,9 @@ async function procesarComandoDueno(sock, texto) {
 - !descuentos → Ver descuentos activos
 - !limpiar → Limpiar descuentos vencidos
 - !scraping → Ejecutar scraping manual ahora
-- !canal → Buscar canal de notificaciones
+- !mis-grupos → Listar todos los grupos con IDs
+- !test-canal → Enviar mensaje de prueba
+- !canal → Ver estado del canal
         `;
         await sock.sendMessage(NUMERO_DUENO, { text: ayuda });
         return;
@@ -306,11 +364,60 @@ async function procesarComandoDueno(sock, texto) {
         return;
     }
 
+    if (lowText === '!mis-grupos') {
+        try {
+            const chats = await sock.groupFetchAllParticipating();
+            const grupos = Object.entries(chats).filter(([jid]) => jid.includes('@g.us'));
+
+            if (grupos.length === 0) {
+                await sock.sendMessage(NUMERO_DUENO, { text: '❌ No hay grupos disponibles' });
+                return;
+            }
+
+            let lista = '📱 *Tus grupos:*\n\n';
+            grupos.forEach(([jid, grupo], idx) => {
+                lista += `${idx + 1}. *${grupo.subject}*\n   ID: \`${jid}\`\n\n`;
+            });
+
+            await sock.sendMessage(NUMERO_DUENO, { text: lista });
+        } catch (error) {
+            logger.error(`Error listando grupos: ${error.message}`);
+            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Error: ${error.message}` });
+        }
+        return;
+    }
+
+    if (lowText === '!test-canal') {
+        if (!canalId) {
+            await sock.sendMessage(NUMERO_DUENO, { text: '❌ Canal no configurado' });
+            return;
+        }
+
+        await sock.sendMessage(NUMERO_DUENO, { text: `⏳ Enviando mensaje de prueba al canal: ${canalId}` });
+
+        const mensajePrueba = `
+🤖 *TEST MENSAJE*
+Este es un mensaje de prueba del bot Descuentos Tuyos
+Timestamp: ${new Date().toLocaleString('es-AR')}
+        `;
+
+        try {
+            logger.info(`📤 Enviando test al canal ${canalId}...`);
+            const result = await sock.sendMessage(canalId, { text: mensajePrueba });
+            logger.info(`✅ Test enviado exitosamente. Respuesta: ${JSON.stringify(result)}`);
+            await sock.sendMessage(NUMERO_DUENO, { text: `✅ Mensaje de prueba enviado al canal exitosamente` });
+        } catch (error) {
+            logger.error(`❌ Error en test: ${error.message}`);
+            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Error al enviar: ${error.message}` });
+        }
+        return;
+    }
+
     if (lowText === '!canal') {
         if (canalId) {
-            await sock.sendMessage(NUMERO_DUENO, { text: `✅ Canal "${NOMBRE_CANAL}" encontrado y conectado` });
+            await sock.sendMessage(NUMERO_DUENO, { text: `✅ Canal configurado: ${canalId}` });
         } else {
-            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Canal "${NOMBRE_CANAL}" no encontrado. Asegúrate de crear el canal primero.` });
+            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Canal no configurado` });
         }
         return;
     }
