@@ -312,6 +312,7 @@ async function procesarComandoDueno(sock, texto) {
 - !mis-grupos → Listar todos los grupos con IDs
 - !test-canal → Enviar mensaje de prueba
 - !canal → Ver estado del canal
+- !difusion → Enviar invitación al canal de Ahorro Inteligente
         `;
         await sock.sendMessage(NUMERO_DUENO, { text: ayuda });
         return;
@@ -429,6 +430,41 @@ Timestamp: ${new Date().toLocaleString('es-AR')}
             await sock.sendMessage(NUMERO_DUENO, { text: `✅ Canal configurado: ${canalId}` });
         } else {
             await sock.sendMessage(NUMERO_DUENO, { text: `❌ Canal no configurado` });
+        }
+        return;
+    }
+
+    if (lowText === '!difusion') {
+        if (!canalId) {
+            await sock.sendMessage(NUMERO_DUENO, { text: '❌ Canal no configurado. Actualizá CANAL_ID en Render.' });
+            return;
+        }
+
+        const mensaje = `🧠 *Ahorro Inteligente — AI*
+
+¿Querés ahorrar más en cada compra?
+
+📊 Todos los descuentos, promos y reintegros de bancos y billeteras de Argentina — en un solo lugar y actualizados automáticamente.
+
+💳 Filtrá por *tu banco o fintech*, buscá por comercio y encontrá el descuento que más te conviene.
+
+🆕 *¡Nuevo!* Sección de *Inversión*:
+• Cotización del dólar en tiempo real (Oficial, Blue, MEP, CCL)
+• Tasas de plazo fijo y cuentas remunerativas por banco y fintech
+• Simulador de plazo fijo interactivo
+
+🔗 *Accedé gratis desde acá:*
+https://ahorrointeligente-ai.onrender.com
+
+_— Ahorro Inteligente 🧠_`;
+
+        try {
+            await sock.sendMessage(canalId, { text: mensaje });
+            logger.info(`✅ Difusión enviada al canal ${canalId}`);
+            await sock.sendMessage(NUMERO_DUENO, { text: '✅ Difusión enviada al canal exitosamente.' });
+        } catch (err) {
+            logger.error(`❌ Error en difusión: ${err.message}`);
+            await sock.sendMessage(NUMERO_DUENO, { text: `❌ Error al enviar difusión: ${err.message}` });
         }
         return;
     }
